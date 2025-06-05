@@ -17,6 +17,7 @@ interface IUser extends Document {
     genderInterest: String; // Who they're interested in dating
     fcmToken: string; // 🔥 הוסף FCM Token
     lastTokenUpdate: Date; // 🔥 מתי הטוקן עודכן בפעם האחרונה
+    isGoogleUser: boolean; // 🆕 האם זה משתמש Google
 }
 
 const userSchema = new Schema<IUser>({
@@ -25,8 +26,17 @@ const userSchema = new Schema<IUser>({
     firstName: { type: String, required: true },
     lastName: { type: String, required: true },
     email: { type: String, required: true, unique: true },
-    password: { type: String, required: true },
-    birthDate: { type: Date, required: true },
+    password: { 
+        type: String, 
+        required: function() {
+            // 🔧 Password not required for Google users
+            return !this.isGoogleUser;
+        }
+    },
+    birthDate: { 
+        type: Date, 
+        required: false  // 🔧 לא חובה - Google users יושלימו אחר כך
+    },
     about: { type: String, required: false },
     occupation: { type: String, required: false },
     gender: { type: String, required: false }, // Added gender field (Male/Female)
@@ -35,8 +45,17 @@ const userSchema = new Schema<IUser>({
     dislike: { type: [String], required: false, default: [] },
     refreshToken: String,
     fcmToken: { type: String, required: false, default: null }, // 🔥 FCM Token חדש
-    lastTokenUpdate: { type: Date, required: false, default: Date.now } // 🔥 תאריך עדכון
+    lastTokenUpdate: { type: Date, required: false, default: Date.now }, // 🔥 תאריך עדכון
+    isGoogleUser: { // 🆕 שדה חדש לGoogle OAuth
+        type: Boolean, 
+        required: false, 
+        default: false 
+    }
+}, {
+    timestamps: true  // 🔧 הוסף timestamps אוטומטיים
 });
+
+
 
 const User = mongoose.model<IUser>('User', userSchema);
 export default User;

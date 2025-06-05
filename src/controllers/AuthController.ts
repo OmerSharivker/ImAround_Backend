@@ -6,8 +6,12 @@ import * as dotenv from "dotenv";
 import mongoose from 'mongoose';
 import crypto from 'crypto';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { OAuth2Client } from 'google-auth-library';  // 🆕 הוסף את זה
 
 dotenv.config()
+
+// 🆕 יצירת Google OAuth client
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 const generateUniqueCustomId = async (): Promise<string> => {
     let customId;
@@ -92,6 +96,204 @@ class AuthController {
         } catch (error) {
             console.log(error.message);
             res.status(500).json({ message: error.message });
+        }
+    }
+
+    // 🆕 Google OAuth Authentication
+    googleAuth = async (req: Request, res: Response): Promise<void> => {
+        console.log("🚀 Entered GoogleAuth Controller");
+        console.log("📥 Request body:", req.body);
+        
+        try {
+            const { idToken, email, firstName, lastName, avatar } = req.body;
+            
+            if (!idToken || !email) {
+                res.status(400).json({ message: 'ID token and email are required' });
+                return;
+            }
+
+            // אימות ה-ID token עם Google
+            let payload;
+            try {
+                const ticket = await googleClient.verifyIdToken({
+                    idToken: idToken,
+                    audience: process.env.GOOGLE_CLIENT_ID
+                });
+                payload = ticket.getPayload();
+                console.log("✅ Google token verified successfully");
+                console.log("👤 Google user info:", {
+                    email: payload.email,
+                    name: payload.name,
+                    picture: payload.picture
+                });
+            } catch (verifyError) {
+                console.error("❌ Google token verification failed:", verifyError);
+                res.status(401).json({ message: 'Invalid Google token' });
+                return;
+            }
+
+            // בדיקה אם המשתמש כבר קיים
+            let user = await User.findOne({ email: email });
+            let isNewUser = false;
+            let needsCompletion = false;
+
+            if (!user) {
+                // יצירת משתמש חדש
+                console.log("👤 Creating new Google user");
+                isNewUser = true;
+                needsCompletion = true;
+                
+                const customId = await generateUniqueCustomId();
+                user = new User({
+                    _id: customId,
+                    email: email,
+                    firstName: firstName,
+                    lastName: lastName,
+                    avatar: avatar || payload.picture || "",
+                    isGoogleUser: true,
+                    // שדות שחסרים ויצטרכו להשלים
+                    // birthDate: לא נגדיר - יהיה undefined ויושלם אחר כך
+                    gender: "",
+                    genderInterest: "",
+                    about: "",
+                    occupation: "",
+                    hobbies: [],
+                    dislike: [], // 🔧 הוסף את השדה החדש
+                    password: "", // Google users don't have password
+                    fcmToken: null, // 🔧 הוסף FCM token
+                    lastTokenUpdate: new Date() // 🔧 הוסף last token update
+                });
+                
+                await user.save();
+                console.log("✅ New Google user created:", user._id);
+            } else {
+                // משתמש קיים
+                console.log("👋 Existing user found:", user._id);
+                
+                // בדיקה אם צריך להשלים פרופיל
+                needsCompletion = !user.birthDate || !user.gender || !user.genderInterest;
+                
+                // עדכון פרטים אם נדרש
+                if (!user.isGoogleUser) {
+                    user.isGoogleUser = true;
+                    await user.save();
+                }
+            }
+
+            // יצירת tokens
+            const accessToken = generateToken(user._id.toString());
+            const refreshToken = jwt.sign({ id: user._id }, process.env.SECRET_KEY, { expiresIn: "7d" });
+            
+            // שמירת refresh token
+            user.refreshToken = refreshToken;
+            await user.save();
+
+            console.log("🎯 Google auth response:", {
+                userId: user._id,
+                email: user.email,
+                isNewUser,
+                needsCompletion
+            });
+
+            res.status(200).json({
+                id: user._id,
+                email: user.email,
+                firstName: user.firstName,
+                lastName: user.lastName,
+                avatar: user.avatar,
+                accessToken: accessToken,
+                refreshToken: refreshToken,
+                token: accessToken, // for compatibility
+                isNewUser: isNewUser,
+                needsCompletion: needsCompletion
+            });
+
+        } catch (error) {
+            console.error("❌ Google auth error:", error);
+            res.status(500).json({ message: "Google authentication failed", error: error.message });
+        }
+    }
+
+completeGoogleProfile = async (req: Request, res: Response): Promise<void> => {
+        console.log("🚀 Entered CompleteGoogleProfile Controller");
+        console.log("📥 Request params:", req.params);
+        console.log("📥 Request body:", req.body);
+
+        try {
+            const { userId } = req.params;
+            const { 
+                birthDate, 
+                gender, 
+                genderInterest, 
+                about, 
+                occupation, 
+                hobbies 
+            } = req.body;
+
+            if (!userId) {
+                res.status(400).json({ message: 'User ID is required' });
+                return;
+            }
+
+            // מציאת המשתמש
+            const user = await User.findById(userId);
+            if (!user) {
+                res.status(404).json({ message: 'User not found' });
+                return;
+            }
+
+            console.log("👤 Found user:", user.email);
+
+            // עדכון הפרופיל
+            const updatedUser = await User.findByIdAndUpdate(
+                userId,
+                {
+                    birthDate: birthDate ? new Date(birthDate.split("/").reverse().join("-")) : user.birthDate,
+                    gender: gender || user.gender,
+                    genderInterest: genderInterest || user.genderInterest,
+                    about: about || user.about || "",
+                    occupation: occupation || user.occupation || "",
+                    hobbies: hobbies || user.hobbies || []
+                },
+                { new: true }
+            );
+
+            if (!updatedUser) {
+                res.status(404).json({ message: 'Failed to update user' });
+                return;
+            }
+
+            console.log("✅ Profile completed successfully for user:", updatedUser._id);
+
+            // יצירת token חדש
+            const accessToken = generateToken(updatedUser._id.toString());
+            const refreshToken = jwt.sign({ id: updatedUser._id }, process.env.SECRET_KEY, { expiresIn: "7d" });
+
+            updatedUser.refreshToken = refreshToken;
+            await updatedUser.save();
+
+            res.status(200).json({
+                id: updatedUser._id,
+                email: updatedUser.email,
+                firstName: updatedUser.firstName,
+                lastName: updatedUser.lastName,
+                avatar: updatedUser.avatar,
+                birthDate: updatedUser.birthDate,
+                gender: updatedUser.gender,
+                genderInterest: updatedUser.genderInterest,
+                about: updatedUser.about,
+                occupation: updatedUser.occupation,
+                hobbies: updatedUser.hobbies,
+                accessToken: accessToken,
+                refreshToken: refreshToken,
+                token: accessToken, // for compatibility
+                isNewUser: false,
+                needsCompletion: false
+            });
+
+        } catch (error) {
+            console.error("❌ Complete profile error:", error);
+            res.status(500).json({ message: "Failed to complete profile", error: error.message });
         }
     }
 
@@ -314,6 +516,7 @@ class AuthController {
             });
         }
     };
+
     private isValidBase64(str: string): boolean {
         try {
             // בדיקה אם זה Data URI
@@ -336,7 +539,6 @@ class AuthController {
         }
     }
 
-
     deleteUser = async (req: Request, res: Response): Promise<void> => {
         console.log("Entered DeleteUserController");
         try {
@@ -357,7 +559,5 @@ class AuthController {
         }
     };
 }
-
-
 
 export default new AuthController();
