@@ -12,6 +12,7 @@ router.put('/users/:id', AuthController.updateProfile);
 router.get('/getUserById/:userId', AuthController.getUserById);
 router.post('/analyzeProfilePhoto', AuthController.analyzeProfilePhoto);
 router.delete('/deleteUser/:userId', AuthController.deleteUser);
-
+router.post('/google', AuthController.googleAuth);
+router.put('/complete-google-profile/:userId', AuthController.completeGoogleProfile);
 
 export default router;
