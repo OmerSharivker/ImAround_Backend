@@ -69,7 +69,7 @@ class AuthController {
                 lastName,
                 email,
                 password: hashedPassword,
-                birthDate: new Date(birthDate.split("/").reverse().join("-")),
+                birthDate: birthDate ? new Date(birthDate.split("/").reverse().join("-")) : undefined,
                 about: about || "",
                 occupation: occupation || "",
                 gender: gender || "", // Added gender field
