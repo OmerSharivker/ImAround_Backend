@@ -10,7 +10,11 @@ dotenv.config()
 
 class SearchController {
     search = async (req: Request, res: Response): Promise<void> => {
-        console.log("\x1b[32m%s\x1b[0m", req.body.userIds + " Entered SearchController");
+        console.log("\n========== SEARCH REQUEST ==========");
+        console.log("Full request body:", JSON.stringify(req.body, null, 2));
+        console.log("currentUserId:", req.body.currentUserId);
+        console.log("userIds:", req.body.userIds);
+        console.log("=====================================\n");
         try {
             const id = req.body.currentUserId;
             const usersIds = req.body.userIds;
