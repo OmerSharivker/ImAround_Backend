@@ -332,6 +332,55 @@ completeGoogleProfile = async (req: Request, res: Response): Promise<void> => {
         }
     }
 
+    /**
+     * Refresh access token using refresh token
+     */
+    refreshToken = async (req: Request, res: Response): Promise<void> => {
+        console.log("Entered RefreshTokenController");
+        try {
+            const { refreshToken } = req.body;
+
+            if (!refreshToken) {
+                res.status(400).json({ message: "Refresh token is required" });
+                return;
+            }
+
+            // Verify the refresh token
+            let decoded: any;
+            try {
+                decoded = jwt.verify(refreshToken, process.env.SECRET_KEY);
+            } catch (err) {
+                res.status(401).json({ message: "Invalid or expired refresh token" });
+                return;
+            }
+
+            // Find user and verify refresh token matches
+            const user = await User.findById(decoded.id);
+            if (!user || user.refreshToken !== refreshToken) {
+                res.status(401).json({ message: "Invalid refresh token" });
+                return;
+            }
+
+            // Generate new tokens
+            const newAccessToken = generateToken(user._id.toString());
+            const newRefreshToken = jwt.sign({ id: user._id }, process.env.SECRET_KEY, { expiresIn: "7d" });
+
+            // Save new refresh token
+            user.refreshToken = newRefreshToken;
+            await user.save();
+
+            console.log("Token refreshed for user:", user._id);
+
+            res.json({
+                accessToken: newAccessToken,
+                refreshToken: newRefreshToken,
+            });
+        } catch (error) {
+            console.error("Refresh token error:", error);
+            res.status(500).json({ message: "Internal server error" });
+        }
+    }
+
     fetchProfile = async (req: Request, res: Response): Promise<void> => {
         console.log("Entered FetchProfileController");
         try {
