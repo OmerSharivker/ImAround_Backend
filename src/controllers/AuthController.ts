@@ -6,9 +6,50 @@ import * as dotenv from "dotenv";
 import mongoose from 'mongoose';
 import crypto from 'crypto';
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { OAuth2Client } from 'google-auth-library';  // 🆕 הוסף את זה
+import { OAuth2Client } from 'google-auth-library';
+import axios from 'axios';
 
 dotenv.config()
+
+// reCAPTCHA verification function
+const verifyRecaptcha = async (token: string): Promise<{ success: boolean; score?: number; error?: string }> => {
+    try {
+        const secretKey = process.env.RECAPTCHA_SECRET_KEY;
+        if (!secretKey) {
+            console.error('❌ RECAPTCHA_SECRET_KEY not configured');
+            return { success: false, error: 'reCAPTCHA not configured' };
+        }
+
+        const response = await axios.post(
+            'https://www.google.com/recaptcha/api/siteverify',
+            null,
+            {
+                params: {
+                    secret: secretKey,
+                    response: token
+                }
+            }
+        );
+
+        console.log('🤖 reCAPTCHA verification response:', response.data);
+
+        if (response.data.success) {
+            // For v3, score ranges from 0.0 (bot) to 1.0 (human)
+            // Typically 0.5 is a good threshold
+            const score = response.data.score || 1.0;
+            if (score < 0.3) {
+                console.warn(`⚠️ Low reCAPTCHA score: ${score}`);
+                return { success: false, score, error: 'Suspicious activity detected' };
+            }
+            return { success: true, score };
+        }
+
+        return { success: false, error: response.data['error-codes']?.join(', ') || 'Verification failed' };
+    } catch (error) {
+        console.error('❌ reCAPTCHA verification error:', error);
+        return { success: false, error: 'Verification service error' };
+    }
+};
 
 // 🆕 יצירת Google OAuth client
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
@@ -34,20 +75,37 @@ class AuthController {
         console.log("Entered RegisterController");
         console.log("Request Register body: ", req.body);
         try {
-            const { 
-                firstName, 
-                lastName, 
-                avatar, 
-                birthDate, 
-                email, 
-                password, 
-                about, 
-                occupation, 
-                hobbies, 
+            const {
+                firstName,
+                lastName,
+                avatar,
+                birthDate,
+                email,
+                password,
+                about,
+                occupation,
+                hobbies,
                 genderInterest,
-                gender  // Added gender field
+                gender,
+                recaptchaToken
             } = req.body;
-    
+
+            // Verify reCAPTCHA token
+            if (recaptchaToken) {
+                const recaptchaResult = await verifyRecaptcha(recaptchaToken);
+                if (!recaptchaResult.success) {
+                    console.warn('⚠️ reCAPTCHA verification failed:', recaptchaResult.error);
+                    res.status(400).json({ message: 'Human verification failed. Please try again.' });
+                    return;
+                }
+                console.log(`✅ reCAPTCHA verified successfully (score: ${recaptchaResult.score})`);
+            } else {
+                console.warn('⚠️ No reCAPTCHA token provided');
+                // Optionally reject requests without token in production
+                // res.status(400).json({ message: 'Human verification required' });
+                // return;
+            }
+
             if (!password) {
                 res.status(400).json({ message: 'Password must be provided' });
                 return;
