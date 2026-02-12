@@ -77,8 +77,14 @@ class AuthController {
                 hobbies: hobbies || [],
             });
     
+            // Generate tokens
+            const accessToken = generateToken(user._id.toString());
+            const refreshToken = jwt.sign({ id: user._id }, process.env.SECRET_KEY, { expiresIn: "7d" });
+
+            // Save refresh token to user
+            user.refreshToken = refreshToken;
             await user.save();
-    
+
             res.status(201).json({
                 id: user._id,
                 avatar: user.avatar,
@@ -88,10 +94,12 @@ class AuthController {
                 birthDate: user.birthDate,
                 about: user.about,
                 occupation: user.occupation,
-                gender: user.gender, // Include gender in response
+                gender: user.gender,
                 genderInterest: user.genderInterest,
                 hobbies: user.hobbies,
-                token: generateToken(user._id.toString()),
+                token: accessToken,
+                accessToken: accessToken,
+                refreshToken: refreshToken,
             });
         } catch (error) {
             console.log(error.message);
@@ -336,11 +344,13 @@ completeGoogleProfile = async (req: Request, res: Response): Promise<void> => {
      * Refresh access token using refresh token
      */
     refreshToken = async (req: Request, res: Response): Promise<void> => {
-        console.log("Entered RefreshTokenController");
+        console.log("🔄 Entered RefreshTokenController");
         try {
             const { refreshToken } = req.body;
+            console.log("🔑 Refresh token received:", refreshToken ? `${refreshToken.substring(0, 20)}...` : 'NONE');
 
             if (!refreshToken) {
+                console.log("❌ No refresh token provided");
                 res.status(400).json({ message: "Refresh token is required" });
                 return;
             }
@@ -349,7 +359,9 @@ completeGoogleProfile = async (req: Request, res: Response): Promise<void> => {
             let decoded: any;
             try {
                 decoded = jwt.verify(refreshToken, process.env.SECRET_KEY);
-            } catch (err) {
+                console.log("✅ Refresh token verified, user:", decoded.id);
+            } catch (err: any) {
+                console.log("❌ Refresh token verification failed:", err.message);
                 res.status(401).json({ message: "Invalid or expired refresh token" });
                 return;
             }

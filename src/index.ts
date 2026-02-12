@@ -7,6 +7,7 @@ import matchRoutes from './routes/matchRoutes'
 import cors from 'cors';
 import chatRoutes from './routes/ChatRoutes'
 import FirebaseService from './utils/FirebaseService'; // 🔥 הוסף
+import { authMiddleware } from './middleware/authMiddleware';
 
 const app = express();
 
@@ -25,9 +26,12 @@ app.get("/", (req, res) => {
 connectDB();
 FirebaseService.initialize(); // 🔥 הוסף כאן
 
+// Public routes (no auth required)
 app.use("/auth", authRoutes)
-app.use("/search", searchRoutes)
-app.use("/match", matchRoutes)
-app.use("/chat", chatRoutes)
+
+// Protected routes (auth required)
+app.use("/search", authMiddleware, searchRoutes)
+app.use("/match", authMiddleware, matchRoutes)
+app.use("/chat", authMiddleware, chatRoutes)
 
 export default app;
